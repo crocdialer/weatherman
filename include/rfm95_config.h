@@ -29,7 +29,7 @@ struct config_t
     uint8_t pin_irq = 10;
 
     //! reset pin
-    uint8_t pin_reset = 9;
+    uint8_t pin_reset = 12;
 
     float frequency = 868.f;
 

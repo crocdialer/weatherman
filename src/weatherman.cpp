@@ -10,6 +10,8 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
+const uint8_t g_lora_address = 123;
+
 // analog-digital-converter (ADC)
 #define ADC_BITS 10
 constexpr uint32_t ADC_MAX = (1 << ADC_BITS) - 1U;
@@ -54,6 +56,8 @@ void parse_line(char *the_line);
 
 template <typename T> void process_input(T& the_device);
 
+void blink_status_led();
+
 ////////////////////////////////////////////////////////////////////////////////
 
 // lora assets
@@ -79,7 +83,11 @@ void set_address(uint8_t address)
         Serial.print("LoRa radio init complete -> now listening on adress: 0x");
         Serial.println(g_lora_config.address, HEX);
     }
-    else{ Serial.println("LoRa radio init failed"); }
+    else
+    {
+       Serial.println("LoRa radio init failed");
+       while(true){ blink_status_led(); }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -97,30 +105,28 @@ void lora_receive()
 
 ////////////////////////////////////////////////////////////////////////////////
 
-bool lora_send_status()
+template<typename T> bool lora_send_status(const T &data)
 {
-    bool ret = false;
-    constexpr size_t num_bytes = sizeof(weather_t) + 1;
+    // data + checksum
+    constexpr size_t num_bytes = sizeof(T) + 1;
 
-    uint8_t data[num_bytes];
-
-    weather_t &weather = *(weather_t*)data;
-    weather = {};
-    weather.battery = g_battery_val;
-    weather.temperature = map_value<float>(g_temperature, -100.f, 100.f, 0, 65536);
-    weather.pressure = map_value<float>(g_pressure, 0.f, 2000.f, 0, 65536);
-    weather.humidity = g_humidity * 255;
-
-    // checksum
-    data[num_bytes - 1] = crc8(data, sizeof(weather_t));
-
-    // send a message to the lora mesh-server
-    if(m_rfm95.manager->sendtoWait(data, num_bytes, RH_BROADCAST_ADDRESS))
+    struct checksum_helper_t
     {
-        // the message has been reliably delivered to the next node.
-        ret = true;
-    }
-    return ret;
+        uint8_t from, to;
+        T data;
+        uint8_t checksum;
+    };
+    checksum_helper_t foo;
+
+    foo.from = g_lora_config.address;
+    foo.to = RH_BROADCAST_ADDRESS;
+    foo.data = data;
+
+    // checksum TODO: include address
+    foo.checksum = crc8((uint8_t*)&foo.data, sizeof(T));
+
+    // send a broadcast-message
+    return m_rfm95.manager->sendto((uint8_t*)&foo.data, num_bytes, RH_BROADCAST_ADDRESS);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -152,17 +158,26 @@ void setup()
         auto raw_bat_measure = analogRead(g_battery_pin);
 
         float voltage = 3.3f * (float)raw_bat_measure * voltage_divider / (float)ADC_MAX;
-        g_battery_val = static_cast<uint8_t>(map_value<float>(voltage, 3.3f, 4.2f, 0.f, 255.f));
-        // Serial.printf("battery: %d%%\n", 100 * g_battery_val / 255);
-        Serial.printf("raw_bat_measure: %d\n", raw_bat_measure);
+        g_battery_val = static_cast<uint8_t>(map_value<float>(voltage, 3.6f, 4.2f, 0.f, 255.f));
+        Serial.printf("battery-: %d%%\n", 100 * g_battery_val / 255);
+        // Serial.printf("raw_bat_measure: %d\n", raw_bat_measure);
     });
     g_timer[TIMER_BATTERY_MEASURE].set_periodic();
     g_timer[TIMER_BATTERY_MEASURE].expires_from_now(10.f);
 
     // lora config
-    set_address(123);
+    set_address(g_lora_address);
 
-    g_timer[TIMER_LORA_SEND].set_callback([](){ lora_send_status(); });
+    g_timer[TIMER_LORA_SEND].set_callback([]()
+    {
+        weather_t weather = {};
+        weather.battery = g_battery_val;
+        weather.temperature = map_value<float>(g_temperature, -50.f, 100.f, 0, 65535);
+        weather.pressure = map_value<float>(g_pressure, 500.f, 1500.f, 0, 65535);
+        weather.humidity = g_humidity * 255;
+        
+        lora_send_status(weather);
+    });
     g_timer[TIMER_LORA_SEND].set_periodic();
     g_timer[TIMER_LORA_SEND].expires_from_now(g_lora_send_interval);
 
@@ -177,33 +192,12 @@ void setup()
     g_timer[TIMER_SENSOR_MEASURE].set_callback([]()
     {
         g_sensor.takeForcedMeasurement();
-
         g_temperature = g_sensor.readTemperature();
         g_pressure = g_sensor.readPressure() / 100.f;
         g_humidity = g_sensor.readHumidity() / 100.f;
-
-        Serial.print("Temperature = ");
-        Serial.print(g_sensor.readTemperature());
-        Serial.println(" *C");
-
-        Serial.print("Pressure = ");
-
-        Serial.print(g_sensor.readPressure() / 100.0F);
-        Serial.println(" hPa");
-
-        // Serial.print("Approx. Altitude = ");
-        // Serial.print(g_sensor.readAltitude(SEALEVELPRESSURE_HPA));
-        // Serial.println(" m");
-
-        Serial.print("Humidity = ");
-        Serial.print(g_sensor.readHumidity());
-        Serial.println(" %");
-
-        Serial.println();
-
-      });
-      g_timer[TIMER_SENSOR_MEASURE].set_periodic();
-      g_timer[TIMER_SENSOR_MEASURE].expires_from_now(.4f);
+    });
+    g_timer[TIMER_SENSOR_MEASURE].set_periodic();
+    g_timer[TIMER_SENSOR_MEASURE].expires_from_now(.4f);
 
     digitalWrite(13, LOW);
 }
