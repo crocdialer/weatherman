@@ -34,7 +34,12 @@ enum TimerEnum
 kinski::Timer g_timer[NUM_TIMERS];
 
 // battery
+#if defined(ARDUINO_SAMD_ZERO)
 constexpr uint8_t g_battery_pin = A7;
+#elif defined(ARDUINO_FEATHER_M4)
+constexpr uint8_t g_battery_pin = A6;
+#endif
+
 uint8_t g_battery_val = 0;
 
 // BME280 temperature/pressure/humidity sensor
@@ -175,7 +180,7 @@ void setup()
         weather.temperature = map_value<float>(g_temperature, -50.f, 100.f, 0, 65535);
         weather.pressure = map_value<float>(g_pressure, 500.f, 1500.f, 0, 65535);
         weather.humidity = g_humidity * 255;
-        
+
         lora_send_status(weather);
     });
     g_timer[TIMER_LORA_SEND].set_periodic();
