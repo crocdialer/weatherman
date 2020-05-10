@@ -10,7 +10,7 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
-const uint8_t g_lora_address = 123;
+const uint8_t g_lora_address = 124;
 
 // analog-digital-converter (ADC)
 #define ADC_BITS 10
@@ -115,23 +115,15 @@ template<typename T> bool lora_send_status(const T &data)
     // data + checksum
     constexpr size_t num_bytes = sizeof(T) + 1;
 
-    struct checksum_helper_t
-    {
-        uint8_t from, to;
-        T data;
-        uint8_t checksum;
-    };
-    checksum_helper_t foo;
+    uint8_t crc_data[3 + sizeof(T)];
+    crc_data[0] = g_lora_config.address;
+    crc_data[1] = RH_BROADCAST_ADDRESS;
 
-    foo.from = g_lora_config.address;
-    foo.to = RH_BROADCAST_ADDRESS;
-    foo.data = data;
-
-    // checksum TODO: include address
-    foo.checksum = crc8((uint8_t*)&foo.data, sizeof(T));
+    memcpy(crc_data + 2, &data, sizeof(T));
+    crc_data[sizeof(crc_data) - 1] = crc8(crc_data, 2 + sizeof(T));
 
     // send a broadcast-message
-    return m_rfm95.manager->sendto((uint8_t*)&foo.data, num_bytes, RH_BROADCAST_ADDRESS);
+    return m_rfm95.manager->sendto(crc_data + 2, num_bytes, RH_BROADCAST_ADDRESS);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
