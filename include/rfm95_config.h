@@ -40,8 +40,8 @@ struct config_t
 
     uint8_t address = 0;
 
-    // carrier-access detection
-    uint32_t cad_timeout = 0;
+    // carrier-access detection (ms)
+    uint32_t cad_timeout = 10;
 };
 
 enum NodeStructType

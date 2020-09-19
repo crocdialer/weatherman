@@ -10,12 +10,16 @@
 #include <Adafruit_Sensor.h>
 #include <Adafruit_BME280.h>
 
-const uint8_t g_lora_address = 124;
+// median-filtering of measurements
+#include "RunningMedian.h"
+
+const uint8_t g_lora_address = 114;
 
 // analog-digital-converter (ADC)
 #define ADC_BITS 10
 constexpr uint32_t ADC_MAX = (1 << ADC_BITS) - 1U;
 
+// update interval in ms
 const int g_update_interval = 33;
 char g_serial_buf[512];
 
@@ -43,23 +47,26 @@ constexpr uint8_t g_battery_pin = A6;
 uint8_t g_battery_val = 0;
 
 // BME280 temperature/pressure/humidity sensor
+uint8_t g_sensor_i2c_adress = 0x76;// SDO low: 0x76, SDO high 0x77
 Adafruit_BME280 g_sensor;
 
+// number of samples to combine for one measurement
+const uint16_t g_num_samples = 5;
+
+// interval between measurements in seconds
+float g_measure_interval = 0.1f;
+
 // last measurements
-float g_temperature;
+RunningMedian g_temperature{g_num_samples};
 
 // in hPa
-float g_pressure;
+RunningMedian g_pressure{g_num_samples};
 
 // relative in range [0..1]
-float g_humidity;
+RunningMedian g_humidity{g_num_samples};
 
 ////////////////////////////////////////////////////////////////////////////////
 // forward declared functions
-
-void parse_line(char *the_line);
-
-template <typename T> void process_input(T& the_device);
 
 void blink_status_led();
 
@@ -74,7 +81,7 @@ lora::driver_struct_t m_rfm95 = {};
 //! lora message buffer
 uint8_t g_lora_buffer[RH_RF95_MAX_MESSAGE_LEN];
 
-float g_lora_send_interval = 2.f;
+float g_lora_send_interval = 5.f;
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -169,9 +176,9 @@ void setup()
     {
         weather_t weather = {};
         weather.battery = g_battery_val;
-        weather.temperature = map_value<float>(g_temperature, -50.f, 100.f, 0, 65535);
-        weather.pressure = map_value<float>(g_pressure, 500.f, 1500.f, 0, 65535);
-        weather.humidity = g_humidity * 255;
+        weather.temperature = map_value<float>(g_temperature.getMedian(), -50.f, 100.f, 0, 65535);
+        weather.pressure = map_value<float>(g_pressure.getMedian(), 500.f, 1500.f, 0, 65535);
+        weather.humidity = g_humidity.getMedian() * 255;
 
         lora_send_status(weather);
     });
@@ -179,7 +186,7 @@ void setup()
     g_timer[TIMER_LORA_SEND].expires_from_now(g_lora_send_interval);
 
     // BME setup
-    if(!g_sensor.begin())
+    if(!g_sensor.begin(g_sensor_i2c_adress))
     {
         Serial.println("Could not find a valid BME280 sensor, check wiring!");
         while(true){ blink_status_led(); }
@@ -189,12 +196,12 @@ void setup()
     g_timer[TIMER_SENSOR_MEASURE].set_callback([]()
     {
         g_sensor.takeForcedMeasurement();
-        g_temperature = g_sensor.readTemperature();
-        g_pressure = g_sensor.readPressure() / 100.f;
-        g_humidity = g_sensor.readHumidity() / 100.f;
+        g_temperature.add(g_sensor.readTemperature());
+        g_pressure.add(g_sensor.readPressure() / 100.f);
+        g_humidity.add(g_sensor.readHumidity() / 100.f);
     });
     g_timer[TIMER_SENSOR_MEASURE].set_periodic();
-    g_timer[TIMER_SENSOR_MEASURE].expires_from_now(.4f);
+    g_timer[TIMER_SENSOR_MEASURE].expires_from_now(g_measure_interval);
 
     digitalWrite(13, LOW);
 }
@@ -205,64 +212,7 @@ void loop()
     uint32_t delta_time = millis() - g_last_time_stamp;
     g_last_time_stamp = millis();
     g_time_accum += delta_time;
-    g_time_accum_params += delta_time;
 
     // poll Timer objects
     for(uint32_t i = 0; i < NUM_TIMERS; ++i){ g_timer[i].poll(); }
-}
-
-template <typename T> void process_input(T& the_device)
-{
-    uint16_t buf_idx = 0;
-
-    while(the_device.available())
-    {
-        // get the new byte:
-        char c = the_device.read();
-
-        switch(c)
-        {
-            case '\r':
-            case '\0':
-                continue;
-
-            case '\n':
-                g_serial_buf[buf_idx] = '\0';
-                buf_idx = 0;
-                parse_line(g_serial_buf);
-                break;
-
-            default:
-                g_serial_buf[buf_idx++] = c;
-                break;
-        }
-    }
-}
-
-bool check_for_cmd(const char* the_str)
-{
-    if(strcmp(the_str, CMD_QUERY_ID) == 0)
-    {
-        char buf[32];
-        sprintf(buf, "%s %s\n", the_str, DEVICE_ID);
-        Serial.print(buf);
-        return true;
-    }
-    return false;
-}
-
-void parse_line(char *the_line)
-{
-    const char* delim = " ";
-    const size_t elem_count = 3;
-    char *token = strtok(the_line, delim);
-    int num_buf[elem_count];
-    uint16_t i = 0;
-
-    for(; token && (i < elem_count); i++)
-    {
-        if(check_for_cmd(token)){ break; }
-        else{ num_buf[i] = atoi(token); }
-        token = strtok(nullptr, delim);
-    }
 }
