@@ -1,4 +1,4 @@
-#include "device_id.h"
+#include "ArduinoLowPower.h"
 #include "utils.h"
 #include "Timer.hpp"
 
@@ -213,6 +213,16 @@ void loop()
     g_last_time_stamp = millis();
     g_time_accum += delta_time;
 
+    float next_timer_event = 10.f;
+
     // poll Timer objects
-    for(uint32_t i = 0; i < NUM_TIMERS; ++i){ g_timer[i].poll(); }
+    for(uint32_t i = 0; i < NUM_TIMERS; ++i)
+    {
+         g_timer[i].poll();
+         next_timer_event = min(next_timer_event, g_timer[i].expires_from_now());
+    }
+
+    // wake up 2ms before next event
+    int sleep_duration = max(next_timer_event * 1000 - 2, 0);
+    LowPower.idle(sleep_duration);
 }
