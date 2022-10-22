@@ -8,7 +8,7 @@
 
 // BME temperature/pressure/humidity sensor
 #include <Adafruit_Sensor.h>
-#include <Adafruit_BME280.h>
+#include <Adafruit_BME680.h>
 
 // median-filtering of measurements
 #include "RunningMedian.h"
@@ -46,9 +46,10 @@ constexpr uint8_t g_battery_pin = A6;
 
 uint8_t g_battery_val = 0;
 
-// BME280 temperature/pressure/humidity sensor
-uint8_t g_sensor_i2c_adress = 0x76;// SDO low: 0x76, SDO high 0x77
-Adafruit_BME280 g_sensor;
+// BME680 temperature/pressure/humidity/gas sensor
+uint8_t g_sensor_i2c_adress = 0x77;
+
+Adafruit_BME680 g_sensor;
 
 // number of samples to combine for one measurement
 const uint16_t g_num_samples = 5;
@@ -185,7 +186,7 @@ void setup()
     g_timer[TIMER_LORA_SEND].set_periodic();
     g_timer[TIMER_LORA_SEND].expires_from_now(g_lora_send_interval);
 
-    // BME setup
+    // BME680 setup
     if(!g_sensor.begin(g_sensor_i2c_adress))
     {
         Serial.println("Could not find a valid BME280 sensor, check wiring!");
@@ -195,10 +196,10 @@ void setup()
     // sensor measuring
     g_timer[TIMER_SENSOR_MEASURE].set_callback([]()
     {
-        g_sensor.takeForcedMeasurement();
-        g_temperature.add(g_sensor.readTemperature());
-        g_pressure.add(g_sensor.readPressure() / 100.f);
-        g_humidity.add(g_sensor.readHumidity() / 100.f);
+        g_sensor.performReading();
+        g_temperature.add(g_sensor.temperature);
+        g_pressure.add(g_sensor.pressure / 100.f);
+        g_humidity.add(g_sensor.humidity / 100.f);
     });
     g_timer[TIMER_SENSOR_MEASURE].set_periodic();
     g_timer[TIMER_SENSOR_MEASURE].expires_from_now(g_measure_interval);
