@@ -17,6 +17,9 @@ typedef struct weather_t
     //! pressure in range [0hPa .. 2000hPa]
     uint16_t pressure = 0;
 
+    //! relative air-quality in range [0..1]
+    uint16_t air_quality = 0;
+
     // relative humidity in range [0..1]
     uint8_t humidity = 0;
 

@@ -66,6 +66,9 @@ RunningMedian g_pressure{g_num_samples};
 // relative in range [0..1]
 RunningMedian g_humidity{g_num_samples};
 
+// relative in range [0..1]
+RunningMedian g_gas_resistance{g_num_samples};
+
 ////////////////////////////////////////////////////////////////////////////////
 // forward declared functions
 
@@ -180,6 +183,7 @@ void setup()
         weather.temperature = map_value<float>(g_temperature.getMedian(), -50.f, 100.f, 0, 65535);
         weather.pressure = map_value<float>(g_pressure.getMedian(), 500.f, 1500.f, 0, 65535);
         weather.humidity = g_humidity.getMedian() * 255;
+        weather.air_quality = map_value<float>(g_gas_resistance.getMedian(), 0, 65535, 0, 65535);
 
         lora_send_status(weather);
     });
@@ -200,6 +204,7 @@ void setup()
         g_temperature.add(g_sensor.temperature);
         g_pressure.add(g_sensor.pressure / 100.f);
         g_humidity.add(g_sensor.humidity / 100.f);
+        g_gas_resistance.add(g_sensor.gas_resistance);
     });
     g_timer[TIMER_SENSOR_MEASURE].set_periodic();
     g_timer[TIMER_SENSOR_MEASURE].expires_from_now(g_measure_interval);
